@@ -1,0 +1,108 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # ----------------------------------------------------
+  # JOB 1: Backend CI (Build, Test with Postgres, Package)
+  # ----------------------------------------------------
+  backend-ci:
+    runs-on: ubuntu-latest
+
+    # Spin up a localized PostgreSQL instance for Integration Tests
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: hello_db
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        # Ensure postgres is healthy before running tests
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Build and Test Backend
+        working-directory: ./backend
+        env:
+          # Pass DB configs as environment variables to Override Spring application.properties
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/hello_db
+          SPRING_DATASOURCE_USERNAME: test_user
+          SPRING_DATASOURCE_PASSWORD: test_password
+        run: ./mvnw clean package
+
+      # Optional: If you intend to upload the resulting JAR for CD
+      - name: Upload Backend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: backend/target/*.jar
+
+  # ----------------------------------------------------
+  # JOB 2: Frontend CI (Install, Lint, Build)
+  # ----------------------------------------------------
+  frontend-ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
+
+      - name: Install Dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build Frontend
+        working-directory: ./frontend
+        run: npm run build
+
+      # Optional: Upload static site build directory for CD
+      - name: Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/dist # or 'build' depending on your React config
+
+  # ----------------------------------------------------
+  # JOB 3: Continuous Deployment (CD stub)
+  # ----------------------------------------------------
+  deploy:
+    needs: [backend-ci, frontend-ci]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Deploy Placeholder
+        run: |
+          echo "Deploying applications..."
+          # You can add AWS/Docker/Render deployment commands here
+          # Example: docker build, pushing to DockerHub, or triggering a webhook.
